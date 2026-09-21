@@ -2,101 +2,119 @@
 
 <img src="https://octodex.github.com/images/Professortocat_v2.png" align="right" height="200px" />
 
-
 # AIOps Monitoring and Event Processing
 
-## AIOps Scenario
+## What This Project Does
 
-This project simulates an AIOps workflow for monitoring a service called payment-service. The service handles payment requests and generates operational telemetry including response time, CPU usage, memory usage, and log events. The operational problem being addressed is degraded service health caused by latency spikes and resource saturation, which can lead to timeouts and failed transactions.
+This project is a simple AIOps example for monitoring a service called
+`payment-service`. The service processes payments and records response time,
+CPU usage, memory usage, and log messages.
 
-AIOps is used here to detect abnormal behavior from live operational data, turn those issues into events, pass those events through a lightweight streaming flow, and process the final outcome so the team can identify and respond to service problems more quickly.
+The main goal is to find out when the service starts having problems. In this
+dataset, the problems are slow responses, high resource usage, and timeout
+errors. After finding an abnormal record, the program creates an event and
+sends it through a small in-memory event pipeline.
 
-## Operational Data Description
+## Data Used
 
-The dataset is stored in the service data file and contains a series of records captured over time. Each record includes:
+The sample data is in `data/service_data.json`. Every record contains:
 
-- timestamp
-- service
-- response_time_ms
-- cpu_percent
-- memory_percent
-- log_level
-- message
+- `timestamp`
+- `service`
+- `response_time_ms`
+- `cpu_percent`
+- `memory_percent`
+- `log_level`
+- `message`
 
-The timestamps are used to track the sequence of events in order, with records collected approximately one minute apart. This allows the system to compare normal behavior against sudden spikes in latency or resource consumption.
+The records are about one minute apart, so it is possible to see how the
+service changes over time.
 
-## Observations from the Metrics and Logs
+## What I Found in the Data
 
-### Metrics fields
-The metric fields are:
+### Normal records
 
-- response_time_ms
-- cpu_percent
-- memory_percent
+At the beginning of the dataset, the service looks healthy:
 
-These values represent the operational health of the service and show whether the service is responding normally or under stress.
+- response time is around 120-150 ms
+- CPU usage is around 42-50%
+- memory usage is around 51-57%
+- log level is `INFO`
+- the messages show successful processing
 
-### Log information
-The log-related fields are:
+These values do not show any major problem.
 
-- log_level
-- message
-- service
+### Abnormal records
 
-These fields provide textual operational context about what happened during each observation.
+The main problems appear in these two records:
 
-### Normal behavior
-The normal observations are the records around the beginning of the data set, where values remain relatively stable:
+- `2026-09-20T10:05:00`
+- `2026-09-20T10:06:00`
 
-- response_time_ms is approximately 120–150 ms
-- cpu_percent is around 42–50%
-- memory_percent is around 51–57%
-- log_level is INFO
-- message indicates successful processing
+Their values are much higher than the normal records:
 
-These records represent healthy service operation with no obvious signs of failure.
+- response time: 610 ms and 640 ms
+- CPU usage: 75% and 94%
+- memory usage: 70% and 91%
+- log level: `ERROR`
+- messages: `Payment service timeout` and `Database connection timeout`
 
-### Unusual behavior
-The unusual observations appear at the later timestamps:
+This suggests that the payment service was under heavy load and could not
+process requests normally. The database timeout may also mean that the
+backend was having connection or resource problems.
 
-- 2026-09-20T10:05:00
-- 2026-09-20T10:06:00
+## How Anomaly Detection Works
 
-These records show:
+The detector checks each record against limits for response time, CPU usage,
+and memory usage. It also treats an `ERROR` log as an anomaly signal.
 
-- response_time_ms: 610 ms and 640 ms
-- cpu_percent: 75% and 94%
-- memory_percent: 70% and 91%
-- log_level: ERROR
-- messages: "Payment service timeout" and "Database connection timeout"
+The two records above are detected because they have high metric values and
+error messages. The detector stores the reasons for each anomaly so they can
+be included in the event sent to the next part of the pipeline.
 
-These values clearly indicate a degraded or failing service state and represent the main anomalous behavior in the dataset.
+## Event Processing Flow
 
-## Anomaly Detection Findings
+The project follows this flow:
 
-The anomaly detection logic identifies records that exceed defined thresholds for response time, CPU, and memory usage. It also checks for error-level conditions that can point to operational issues.
+```text
+Operational Data -> Anomaly Detection -> Event Generation
+-> Producer -> Topic -> Consumer -> AIOps Output
+```
 
-The primary anomalies detected are:
+The topic used here is an in-memory Python class, so this is only a small
+simulation of a streaming system. The producer publishes each anomaly event,
+and the consumer reads the events from the same topic.
 
-1. 2026-09-20T10:05:00
-   - High response time
-   - Elevated CPU usage
-   - Elevated memory usage
-   - Error log message: "Payment service timeout"
+## Problems Found During Testing
 
-2. 2026-09-20T10:06:00
-   - High response time
-   - Very high CPU usage
-   - Very high memory usage
-   - Error log message: "Database connection timeout"
+While checking the project, I found and fixed these issues:
 
-These anomalies are significant because they combine slow service performance with severe resource pressure and error-level log output. Together, they indicate a likely backend or resource bottleneck affecting the payment service.
+- the detector was checking for `WARNING`, but the data uses `ERROR`
+- the producer and consumer were using different topic objects
+- the `src` folder needed an `__init__.py` file so it could be imported as a
+  Python package
 
-The project simulates a basic streaming workflow:
+After these fixes, the complete pipeline was able to detect and consume both
+anomaly events.
 
-Operational Data -> Anomaly Detection -> Event Generation -> Producer -> Topic -> Consumer -> AIOps Output
+## How to Run the Tests
 
-This means the service telemetry is analyzed, abnormal events are identified, those events are emitted as messages, and downstream processing checks whether the issue is valid and actionable.
+From the project root, run:
 
-This README section documents the initial analysis of the simulated AIOps scenario. The normal records show stable service operation, while the later records show abnormal CPU, memory, and response metrics tied to timeout errors. These findings are the basis for the downstream event pipeline and final AIOps processing workflow.
+```bash
+PYTHONPATH=. python -m pytest -q
+```
+
+The current result is:
+
+```text
+8 passed in 0.06s
+```
+
+## Limitations
+
+This project uses fixed thresholds, so it is mainly meant as a basic
+demonstration. In a real monitoring system, the limits could change depending
+on the normal traffic pattern. A future version could use time-window checks
+or adaptive thresholds to make the detection more accurate.
 
